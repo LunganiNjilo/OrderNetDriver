@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "1015486602166",
+    "firebase_url": "https://eats-527e9-default-rtdb.firebaseio.com",
+    "project_id": "eats-527e9",
+    "storage_bucket": "eats-527e9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1015486602166:android:a286e3bdf4d508f8433f17",
+        "android_client_info": {
+          "package_name": "com.example.driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB4RBASJf0WTl1h4y1mQLnPofRpgJjcIHY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
