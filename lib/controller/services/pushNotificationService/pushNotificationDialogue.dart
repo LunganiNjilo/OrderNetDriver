@@ -1,23 +1,21 @@
 import 'dart:developer';
+import 'package:driver/constant/constant.dart';
 import 'package:driver/controller/provider/orderProvider/orderProvider.dart';
 import 'package:driver/controller/provider/rideProvider/rideProvider.dart';
-import 'package:driver/controller/services/locationServices/locationService.dart';
 import 'package:driver/controller/services/orderServices/orderService.dart';
+import 'package:driver/controller/services/profileService/profileService.dart';
+import 'package:driver/model/driverModel/driverModel.dart';
 import 'package:driver/model/foodOrderModel/foodOrderModel.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 class PushNotificationDialogue {
-  /// 🔥 PREVENT MULTIPLE DIALOGS
   static bool _isDialogOpen = false;
 
   static Future<void> deliveryRequestDialogue(
     String orderId,
     BuildContext context,
   ) async {
-    /// 🚫 STOP DUPLICATE POPUPS
     if (_isDialogOpen) {
       log("Dialog already open, skipping...");
       return;
@@ -26,21 +24,34 @@ class PushNotificationDialogue {
     _isDialogOpen = true;
 
     try {
+      /// 🔥 CHECK DRIVER STATE
+      DriverModel driver =
+          await ProfileServices.getDeliveryPartnerProfileData();
+
+      if (driver.activeDeliveryRequestId != null &&
+          driver.activeDeliveryRequestId!.isNotEmpty) {
+        log("Driver already busy");
+        return;
+      }
+
+      /// 🔊 PLAY ALERT SOUND
+      await audioPlayer.setAsset('assets/sounds/alert.mp3');
+      audioPlayer.play();
+
+      /// 🔥 FETCH ORDER
       FoodOrderModel foodOrderData = await Orderservice.fetchOrderDetails(
         orderId,
       );
 
-      /// ⚠️ SAFETY CHECK
       if (!context.mounted) return;
 
       await showDialog(
         context: context,
-        barrierDismissible: false, // 🔥 VERY IMPORTANT
+        barrierDismissible: false,
         builder: (dialogContext) {
           return AlertDialog(
             title: const Text("New Delivery Request"),
 
-            /// 🔥 SHOW REAL INFO (better UX)
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -57,6 +68,7 @@ class PushNotificationDialogue {
               /// ❌ DECLINE
               TextButton(
                 onPressed: () {
+                  audioPlayer.stop();
                   Navigator.pop(dialogContext);
                 },
                 child: const Text("Decline"),
@@ -68,37 +80,26 @@ class PushNotificationDialogue {
                   Navigator.pop(dialogContext);
 
                   try {
-                    Position pos = await LocationService.getCurrentLocation();
-
-                    LatLng restaurant = LatLng(
-                      foodOrderData.restaurantDetails.address!.latitude!,
-                      foodOrderData.restaurantDetails.address!.longitude!,
-                    );
-
-                    LatLng delivery = LatLng(
-                      foodOrderData.userAddress!.latitude!,
-                      foodOrderData.userAddress!.longitude!,
-                    );
-
                     final rideProvider = context.read<RideProvider>();
 
-                    /// 🔥 SET STATE CLEANLY
-                    rideProvider.updateCurrentPosition(pos);
-                    rideProvider.restaurantLocation = restaurant;
-                    rideProvider.deliveryLocation = delivery;
-
-                    rideProvider.updateOrderData(foodOrderData);
-                    rideProvider.updateInDeliveryStatus(false);
-
-                    /// 🔥 LOAD ROUTE
-                    await rideProvider.fetchCrrLoationToRestaurantPolyline(
+                    /// 🔥 BACKEND UPDATE (IMPORTANT)
+                    await Orderservice.updateDiverProfileIntoFoodOrderModelAndAddActiveDeliveryRequest(
+                      orderId,
                       context,
                     );
 
-                    /// 🔥 UPDATE ORDER PROVIDER
+                    /// 🔥 SET ORDER DATA + LOAD ROUTE
+                    await rideProvider.updateOrderData(foodOrderData, context);
+
+                    /// 🔥 START IN PICKUP MODE
+                    rideProvider.updateInDeliveryStatus(false);
+
+                    /// 🔥 UPDATE ORDER STATE
                     context.read<OrderProvider>().updateFoodOrderData(
                       foodOrderData,
                     );
+
+                    audioPlayer.stop();
                   } catch (e) {
                     log("Accept error: $e");
                   }
@@ -112,7 +113,6 @@ class PushNotificationDialogue {
     } catch (e) {
       log("Dialog error: $e");
     } finally {
-      /// 🔥 RESET FLAG AFTER CLOSE
       _isDialogOpen = false;
     }
   }

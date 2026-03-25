@@ -1,22 +1,26 @@
 import 'dart:async';
 
 import 'package:driver/constant/constant.dart';
-import 'package:driver/controller/provider/rideProvider/rideProvider.dart';
 import 'package:driver/controller/services/locationServices/locationService.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_geofire/flutter_geofire.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:provider/provider.dart';
 
 class GeofireService {
   static DatabaseReference databaseReference = FirebaseDatabase.instance
       .ref()
       .child('Driver/${auth.currentUser!.uid}/driverStatus');
 
+  static StreamSubscription<Position>? _positionStream;
+
+  /// =========================
+  /// GO ONLINE
+  /// =========================
   static goOnline() async {
     Position currentPosition = await LocationService.getCurrentLocation();
+
     Geofire.initialize('OnlineDrivers');
+
     Geofire.setLocation(
       auth.currentUser!.uid,
       currentPosition.latitude,
@@ -24,17 +28,25 @@ class GeofireService {
     );
 
     databaseReference.set('ONLINE');
-    databaseReference.onValue.listen((event) {});
   }
 
+  /// =========================
+  /// GO OFFLINE
+  /// =========================
   static goOffline() {
     Geofire.removeLocation(auth.currentUser!.uid);
+
     databaseReference.set('OFFLINE');
-    databaseReference.onDisconnect();
+
+    _positionStream?.cancel();
   }
 
-  static updateLocationRealtime(BuildContext context) async {
+  /// =========================
+  /// 🔥 REALTIME LOCATION (BACKEND ONLY)
+  /// =========================
+  static updateLocationRealtime() async {
     LocationPermission permission = await Geolocator.checkPermission();
+
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
@@ -44,16 +56,19 @@ class GeofireService {
       distanceFilter: 10,
     );
 
-    StreamSubscription<Position> driverPositionStream =
+    _positionStream?.cancel();
+
+    _positionStream =
         Geolocator.getPositionStream(locationSettings: locationSettings).listen(
           (event) {
+            /// ✅ ONLY update backend (Geofire)
             Geofire.setLocation(
               auth.currentUser!.uid,
               event.latitude,
               event.longitude,
             );
 
-            context.read<RideProvider>().updateCurrentPosition(event);
+            /// ❌ DO NOT TOUCH RideProvider HERE
           },
         );
   }

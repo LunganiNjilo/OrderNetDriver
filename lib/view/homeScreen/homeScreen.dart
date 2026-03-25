@@ -2,16 +2,12 @@ import 'dart:async';
 import 'package:driver/constant/constant.dart';
 import 'package:driver/controller/provider/rideProvider/rideProvider.dart';
 import 'package:driver/controller/services/geofireServices/geofireService.dart';
-import 'package:driver/controller/services/locationServices/locationService.dart';
 import 'package:driver/controller/services/orderServices/orderService.dart';
 import 'package:driver/model/driverModel/driverModel.dart';
-import 'package:driver/model/foodOrderModel/foodOrderModel.dart';
 import 'package:driver/utils/colors.dart';
-import 'package:driver/utils/textStyles.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_swipe_button/flutter_swipe_button.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:sizer/sizer.dart';
@@ -37,7 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
       .ref()
       .child('Driver/${auth.currentUser!.uid}');
 
-  /// 🔥 GOOGLE MAPS NAVIGATION (optional fallback)
+  /// 🔥 GOOGLE MAPS NAVIGATION (fallback)
   Future<void> openGoogleMapsNavigation(double lat, double lng) async {
     final uri = Uri.parse(
       "https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving",
@@ -46,33 +42,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
-  }
-
-  Future<void> moveCameraToCurrentLocation() async {
-    Position currentPosition = await LocationService.getCurrentLocation();
-
-    LatLng currentLatLng = LatLng(
-      currentPosition.latitude,
-      currentPosition.longitude,
-    );
-
-    mapController?.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(target: currentLatLng, zoom: 16),
-      ),
-    );
-  }
-
-  Map<String, dynamic> safeParse(dynamic rawData) {
-    if (rawData is Map) {
-      return Map<String, dynamic>.from(rawData);
-    } else if (rawData is List && rawData.isNotEmpty) {
-      final firstItem = rawData.first;
-      if (firstItem is Map) {
-        return Map<String, dynamic>.from(firstItem);
-      }
-    }
-    return {};
   }
 
   @override
@@ -133,15 +102,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                 inactiveTrackColor: greyShade3,
                                 onSwipe: () {
                                   GeofireService.goOnline();
-                                  GeofireService.updateLocationRealtime(
-                                    context,
-                                  );
+
+                                  /// 🔥 FIXED
+                                  GeofireService.updateLocationRealtime();
                                 },
                                 child: Text('Go Online'),
                               );
                       }
 
-                      return SizedBox();
+                      return const SizedBox();
                     },
                   ),
                 ),
@@ -153,13 +122,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       return GoogleMap(
                         initialCameraPosition: initialCameraPosition,
                         myLocationEnabled: true,
-                        compassEnabled: true, // 🔥 shows compass
+                        compassEnabled: true,
                         myLocationButtonEnabled: false,
 
-                        /// 🔥 MARKERS (driver + destination)
+                        /// 🔥 THIS MAKES IT FEEL LIKE NAVIGATION
+                        padding: const EdgeInsets.only(bottom: 250),
+
+                        /// 🔥 MARKERS
                         markers: rideProvider.deliveryMarker,
 
-                        /// 🔥 POLYLINE (switch based on delivery state)
+                        /// 🔥 POLYLINES
                         polylines: rideProvider.inDelivery
                             ? rideProvider.polylineSetTowardsDelivery
                             : rideProvider.polylineSetTowardsRestaurant,
@@ -174,10 +146,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
                           rideProvider.setMapController(controller);
 
-                          /// 🔥 START NAVIGATION TRACKING
+                          /// 🔥 START REAL NAVIGATION
                           rideProvider.startLiveTracking(context);
 
-                          await moveCameraToCurrentLocation();
+                          /// ❌ REMOVED static camera movement
                         },
                       );
                     },
@@ -187,7 +159,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
 
             /// =========================
-            /// 🔥 NAVIGATION BUTTON (OPTIONAL)
+            /// 🔥 NAVIGATION BUTTON
             /// =========================
             Positioned(
               bottom: 20,

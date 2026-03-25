@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:developer';
+import 'dart:math';
 import 'package:driver/controller/services/directionServices/directionService.dart';
-import 'package:driver/controller/services/orderServices/orderService.dart';
+import 'package:driver/controller/services/locationServices/locationService.dart';
 import 'package:driver/model/directionModel/directionModel.dart';
 import 'package:driver/model/foodOrderModel/foodOrderModel.dart';
 import 'package:flutter/material.dart';
@@ -26,225 +26,124 @@ class RideProvider extends ChangeNotifier {
   FoodOrderModel? orderData;
   bool inDelivery = false;
 
-  String distanceText = "";
-  String durationText = "";
-
-  BitmapDescriptor? vehicleIcon;
-
-  /// 🔥 ROUTE ANIMATION
-  List<LatLng> routePoints = [];
-  int routeIndex = 0;
-  Timer? routeAnimationTimer;
-
-  bool hasArrived = false;
-  bool isNavigating = false;
+  double _lastBearing = 0;
 
   /// =========================
-  /// INIT ICON
+  /// START LIVE TRACKING (FAST)
   /// =========================
-  Future<void> initVehicleIcon() async {
-    if (vehicleIcon != null) return;
-
-    vehicleIcon = await BitmapDescriptor.fromAssetImage(
-      const ImageConfiguration(size: Size(64, 64)),
-      'assets/scooter.png',
-    );
-  }
-
-  /// =========================
-  /// LIVE TRACKING (LIGHT USE)
-  /// =========================
-  void startLiveTracking(BuildContext context) async {
-    await initVehicleIcon();
-
+  void startLiveTracking(BuildContext context) {
     positionStream?.cancel();
 
-    positionStream =
-        Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.bestForNavigation,
-            distanceFilter: 5,
-          ),
-        ).listen((Position position) {
-          currentPosition = position;
-        });
-  }
-
-  /// =========================
-  /// 🔥 ROUTE-BASED MOVEMENT
-  /// =========================
-  void startRouteAnimation(BuildContext context) {
-    routeAnimationTimer?.cancel();
-
-    if (routePoints.isEmpty) return;
-
-    /// 🔥 ENABLE NAVIGATION MODE
-    isNavigating = true;
-
-    routeIndex = 0;
-    hasArrived = false;
-
-    routeAnimationTimer = Timer.periodic(const Duration(milliseconds: 80), (
-      timer,
+    positionStream = LocationService.getLiveLocationStream().listen((
+      Position position,
     ) {
-      if (routeIndex >= routePoints.length - 1) {
-        timer.cancel();
-        _onArrival(context);
-        return;
+      currentPosition = position;
+
+      LatLng latLng = LatLng(position.latitude, position.longitude);
+
+      /// 🔥 REAL-TIME BEARING (movement-based)
+      double bearing;
+      if (deliveryGuyLocation != null) {
+        bearing = _calculateBearing(deliveryGuyLocation!, latLng);
+      } else {
+        bearing = position.heading;
       }
 
-      LatLng current = routePoints[routeIndex];
-      LatLng next = routePoints[routeIndex + 1];
-
-      double bearing = Geolocator.bearingBetween(
-        current.latitude,
-        current.longitude,
-        next.latitude,
-        next.longitude,
-      );
-
-      deliveryGuyLocation = current;
+      deliveryGuyLocation = latLng;
 
       updateDriverMarker(rotation: bearing);
 
-      mapController?.moveCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: current, zoom: 17, tilt: 50, bearing: bearing),
-        ),
-      );
+      _moveCameraInstant(latLng, bearing);
 
-      routeIndex++;
+      notifyListeners();
     });
   }
 
   /// =========================
-  /// ARRIVAL
+  /// CAMERA (NO LAG)
   /// =========================
-  void _onArrival(BuildContext context) {
-    if (hasArrived) return;
+  void _moveCameraInstant(LatLng driverLocation, double bearing) {
+    if (mapController == null) return;
 
-    hasArrived = true;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          inDelivery ? "Arrived at customer" : "Arrived at restaurant",
-        ),
-      ),
+    final cameraPosition = CameraPosition(
+      target: driverLocation,
+      zoom: 19.5, // 🔥 stable
+      tilt: 65, // 🔥 not too aggressive
+      bearing: bearing,
     );
+
+    mapController!.moveCamera(CameraUpdate.newCameraPosition(cameraPosition));
   }
 
   /// =========================
-  /// MARKERS
+  /// BEARING FROM MOVEMENT
   /// =========================
-  void updateDriverMarker({double rotation = 0}) {
-    if (deliveryGuyLocation == null) return;
+  double _calculateBearing(LatLng start, LatLng end) {
+    double lat = (end.latitude - start.latitude);
+    double lng = (end.longitude - start.longitude);
 
-    Set<Marker> markers = {};
+    return atan2(lng, lat) * (180 / pi);
+  }
 
-    markers.add(
-      Marker(
-        markerId: const MarkerId('driver'),
-        position: deliveryGuyLocation!,
-        rotation: rotation,
-        flat: true,
-        anchor: const Offset(0.5, 0.5),
-        icon:
-            vehicleIcon ??
-            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-      ),
+  /// =========================
+  /// ROUTE (UNCHANGED)
+  /// =========================
+  Future<void> _updateRoute(BuildContext context) async {
+    if (currentPosition == null) return;
+
+    LatLng currentLatLng = LatLng(
+      currentPosition!.latitude,
+      currentPosition!.longitude,
     );
 
     LatLng? target = inDelivery ? deliveryLocation : restaurantLocation;
 
-    if (target != null) {
-      markers.add(
-        Marker(markerId: const MarkerId('destination'), position: target),
+    if (target == null) return;
+
+    try {
+      DirectionModel directionDetails =
+          await DirectionService.getDirectionDetails(
+            currentLatLng,
+            target,
+            context,
+          );
+
+      List<PointLatLng> decoded = PolylinePoints.decodePolyline(
+        directionDetails.polylinePoints,
       );
+
+      List<LatLng> points = decoded
+          .map((e) => LatLng(e.latitude, e.longitude))
+          .toList();
+
+      Set<Polyline> polyline = {
+        Polyline(
+          polylineId: const PolylineId('route'),
+          color: Colors.blue,
+          width: 6,
+          points: points,
+        ),
+      };
+
+      if (inDelivery) {
+        polylineSetTowardsDelivery = polyline;
+      } else {
+        polylineSetTowardsRestaurant = polyline;
+      }
+
+      notifyListeners();
+    } catch (e) {
+      print("Route error: $e");
     }
-
-    deliveryMarker = markers;
-    notifyListeners();
   }
 
   /// =========================
-  /// POLYLINE
+  /// ORDER DATA
   /// =========================
-  Polyline decodePolyline(String encodedPolyline) {
-    List<PointLatLng> data = PolylinePoints.decodePolyline(encodedPolyline);
-
-    routePoints = data.map((e) => LatLng(e.latitude, e.longitude)).toList();
-
-    return Polyline(
-      polylineId: const PolylineId('route'),
-      color: Colors.blue,
-      width: 6,
-      points: routePoints,
-    );
-  }
-
-  /// =========================
-  /// ROUTES
-  /// =========================
-  Future<void> fetchCrrLoationToRestaurantPolyline(BuildContext context) async {
-    if (currentPosition == null || restaurantLocation == null) return;
-
-    DirectionModel directionDetails =
-        await DirectionService.getDirectionDetails(
-          LatLng(currentPosition!.latitude, currentPosition!.longitude),
-          restaurantLocation!,
-          context,
-        );
-
-    distanceText = directionDetails.distanceInKM;
-    durationText = directionDetails.durationInHour;
-
-    polylineSetTowardsRestaurant = {
-      decodePolyline(directionDetails.polylinePoints),
-    };
-
-    notifyListeners();
-
-    /// 🔥 START REAL MOVEMENT
-    startRouteAnimation(context);
-  }
-
-  Future<void> fetchResturantToDeliveryPolyline(BuildContext context) async {
-    if (restaurantLocation == null || deliveryLocation == null) return;
-
-    DirectionModel directionDetails =
-        await DirectionService.getDirectionDetails(
-          restaurantLocation!,
-          deliveryLocation!,
-          context,
-        );
-
-    distanceText = directionDetails.distanceInKM;
-    durationText = directionDetails.durationInHour;
-
-    polylineSetTowardsDelivery = {
-      decodePolyline(directionDetails.polylinePoints),
-    };
-
-    notifyListeners();
-
-    /// 🔥 START REAL MOVEMENT
-    startRouteAnimation(context);
-  }
-
-  /// =========================
-  /// BASIC FUNCTIONS
-  /// =========================
-  void setMapController(GoogleMapController controller) {
-    mapController = controller;
-  }
-
-  void updateInDeliveryStatus(bool status) {
-    inDelivery = status;
-    notifyListeners();
-  }
-
-  void updateOrderData(FoodOrderModel data) {
+  Future<void> updateOrderData(
+    FoodOrderModel data,
+    BuildContext context,
+  ) async {
     orderData = data;
 
     restaurantLocation = LatLng(
@@ -257,25 +156,55 @@ class RideProvider extends ChangeNotifier {
       data.userAddress!.longitude!,
     );
 
+    if (currentPosition == null) {
+      currentPosition = await LocationService.getCurrentLocation();
+    }
+
+    await _updateRoute(context);
+
+    notifyListeners();
+  }
+
+  /// =========================
+  /// MARKERS (VISIBLE + RED)
+  /// =========================
+  void updateDriverMarker({double rotation = 0}) {
+    if (deliveryGuyLocation == null) return;
+
+    deliveryMarker = {
+      Marker(
+        markerId: const MarkerId('driver'),
+        position: deliveryGuyLocation!,
+        rotation: rotation,
+        flat: true,
+        anchor: const Offset(0.5, 0.5),
+        zIndex: 999,
+
+        /// 🔥 BACK TO RED + BIGGER FEEL
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+      ),
+      if ((inDelivery ? deliveryLocation : restaurantLocation) != null)
+        Marker(
+          markerId: const MarkerId('destination'),
+          position: inDelivery ? deliveryLocation! : restaurantLocation!,
+        ),
+    };
+  }
+
+  /// =========================
+  /// BASIC
+  /// =========================
+  void setMapController(GoogleMapController controller) {
+    mapController = controller;
+  }
+
+  void updateInDeliveryStatus(bool status) {
+    inDelivery = status;
     notifyListeners();
   }
 
   void stopLiveTracking() {
     positionStream?.cancel();
-    routeAnimationTimer?.cancel();
-  }
-
-  void updateCurrentPosition(Position position) {
-    /// 🔥 BLOCK during navigation
-    if (isNavigating) return;
-
-    currentPosition = position;
-
-    deliveryGuyLocation = LatLng(position.latitude, position.longitude);
-
-    updateDriverMarker(rotation: position.heading);
-
-    notifyListeners();
   }
 
   void nullifyRidesDates() {
@@ -284,8 +213,6 @@ class RideProvider extends ChangeNotifier {
     deliveryMarker.clear();
     polylineSetTowardsRestaurant.clear();
     polylineSetTowardsDelivery.clear();
-
-    routePoints.clear();
 
     deliveryLocation = null;
     restaurantLocation = null;
