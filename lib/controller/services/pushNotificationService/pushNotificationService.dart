@@ -4,21 +4,24 @@ import 'package:driver/controller/services/pushNotificationService/pushNotificat
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class PushNotificationService {
   static FirebaseMessaging firebaemessaging = FirebaseMessaging.instance;
 
   static Future initializeFirebaseMessaging(BuildContext context) async {
     await firebaemessaging.requestPermission();
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      if (message.notification != null) {
-        log(message.toMap().toString());
-        log('The message data is');
-        log(message.data.toString());
 
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      // REMOVE or MODIFY the 'message.notification != null' check
+      // We want the dialogue to trigger if there is DATA (the orderId)
+      if (message.data.isNotEmpty) {
+        log('Received Data Message: ${message.data}');
         firebaseMessagingForegroundHandler(message, context);
+      }
+
+      // If you still want to handle standard notifications
+      if (message.notification != null) {
+        log('Received Notification: ${message.notification!.title}');
       }
     });
   }

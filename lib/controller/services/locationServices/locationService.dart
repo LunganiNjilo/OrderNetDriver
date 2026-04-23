@@ -1,4 +1,5 @@
 import 'dart:developer';
+import 'dart:io';
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
@@ -8,25 +9,45 @@ class LocationService {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        return getCurrentLocation();
+        return Future.error("Location permission denied");
       }
     }
 
-    Position currentPosition = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
+    return await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.bestForNavigation,
     );
-
-    log(currentPosition.toString());
-    return currentPosition;
   }
 
-  /// 🔥 NEW: LIVE STREAM
+  /// 🔥 UNIVERSAL LIVE STREAM (Fixed Freeze)
   static Stream<Position> getLiveLocationStream() {
-    return Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
+    LocationSettings settings;
+
+    if (Platform.isAndroid) {
+      settings = AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 5,
-      ),
-    );
+        distanceFilter: 0, // Instant updates
+        intervalDuration: const Duration(milliseconds: 500),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText: "Tracking your delivery route",
+          notificationTitle: "Navigation Active",
+          enableWakeLock: true,
+        ),
+      );
+    } else if (Platform.isIOS) {
+      settings = AppleSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        activityType: ActivityType.automotiveNavigation,
+        distanceFilter: 0,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+      );
+    } else {
+      settings = const LocationSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
+      );
+    }
+
+    return Geolocator.getPositionStream(locationSettings: settings);
   }
 }
