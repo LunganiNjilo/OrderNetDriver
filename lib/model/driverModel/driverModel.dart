@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:driver/model/UserAddressModel/UserAddressModel.dart';
+
 class DriverModel {
   String? name;
   String? profilePicUrl;
@@ -10,7 +12,9 @@ class DriverModel {
   DateTime? registeredDateTime;
   String? activeDeliveryRequestId;
   String? driverStatus;
-  String? cloudMessageingToken;
+  List<dynamic>? activeDeliveryRequestIds;
+  String? cloudMessagingToken;
+  int? maxActiveOrders;
 
   DriverModel({
     this.name,
@@ -22,7 +26,9 @@ class DriverModel {
     this.registeredDateTime,
     this.activeDeliveryRequestId,
     this.driverStatus,
-    this.cloudMessageingToken,
+    this.activeDeliveryRequestIds,
+    this.cloudMessagingToken,
+    this.maxActiveOrders,
   });
 
   Map<String, dynamic> toMap() {
@@ -36,7 +42,9 @@ class DriverModel {
       'registeredDateTime': registeredDateTime?.toIso8601String(),
       'activeDeliveryRequestId': activeDeliveryRequestId,
       'driverStatus': driverStatus,
-      'cloudMessageingToken': cloudMessageingToken,
+      'activeDeliveryRequestIds': activeDeliveryRequestIds,
+      'cloudMessagingToken': cloudMessagingToken,
+      'maxActiveOrders': maxActiveOrders,
     };
   }
 
@@ -52,8 +60,12 @@ class DriverModel {
           ? DateTime.tryParse(map['registeredDateTime'].toString())
           : null,
       activeDeliveryRequestId: map['activeDeliveryRequestId'],
-      driverStatus: map['driverStatus'],
-      cloudMessageingToken: map['cloudMessageingToken'],
+      driverStatus: map['driverStatus'] ?? 'available',
+      activeDeliveryRequestIds: map['activeDeliveryRequestIds'] != null
+          ? List<dynamic>.from(map['activeDeliveryRequestIds'])
+          : [],
+      cloudMessagingToken: map['cloudMessagingToken'],
+      maxActiveOrders: map['maxActiveOrders']?.toInt() ?? 2,
     );
   }
 

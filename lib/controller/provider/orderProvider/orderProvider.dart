@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import 'package:driver/model/foodOrderModel/foodOrderModel.dart';
 import 'package:flutter/foundation.dart';
 
@@ -6,6 +8,7 @@ class OrderProvider extends ChangeNotifier {
 
   updateFoodOrderData(FoodOrderModel data) {
     orderData = data;
+    log("PROVIDER ORDER DATA NOW: ${orderData?.orderId}");
     notifyListeners();
   }
 

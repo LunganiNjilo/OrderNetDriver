@@ -90,6 +90,7 @@ flutter:
     - assets/sounds/
     - assets/images/ride/
     - assets/images/appIcon/
+    - assets/icons/car_top.png
     
   fonts:
     - family: UberMoveMedium

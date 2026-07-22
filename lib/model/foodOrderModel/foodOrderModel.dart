@@ -21,6 +21,7 @@ class FoodOrderModel {
   DateTime? addedToCartAt;
   DateTime? orderPlacedAt;
   DateTime? orderDeliveredAt;
+  bool? isPickedUp;
 
   FoodOrderModel({
     required this.foodDetails,
@@ -37,6 +38,7 @@ class FoodOrderModel {
     this.addedToCartAt,
     required this.orderPlacedAt,
     this.orderDeliveredAt,
+    this.isPickedUp,
   });
 
   Map<String, dynamic> toMap() {
@@ -55,6 +57,7 @@ class FoodOrderModel {
       'orderPlacedAt': orderPlacedAt?.toIso8601String(),
       'orderDeliveredAt': orderDeliveredAt?.toIso8601String(),
       'deliveryGuyUId': deliveryGuyUId,
+      'isPickedUp': isPickedUp,
     };
   }
 
@@ -114,6 +117,7 @@ class FoodOrderModel {
           ? DateTime.tryParse(map['orderDeliveredAt'].toString())
           : null,
       deliveryGuyUId: map['deliveryGuyUId'] ?? '',
+      isPickedUp: map['isPickedUp'] ?? false,
     );
   }
 

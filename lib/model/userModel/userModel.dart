@@ -1,31 +1,33 @@
 class userModel {
-  String? name;
+  String? displayName;
   String? userProfilePicUrl;
   String? userId;
-  String? cloudMessageingToken;
+  String? cloudMessagingToken;
 
   userModel({
-    this.name,
+    this.displayName,
     this.userProfilePicUrl,
     this.userId,
-    this.cloudMessageingToken,
+    this.cloudMessagingToken,
   });
 
   Map<String, dynamic> toMap() {
     return {
-      'name': name,
+      'displayName': displayName,
       'userProfilePicUrl': userProfilePicUrl,
       'userId': userId,
-      'cloudMessageingToken': cloudMessageingToken,
+      'cloudMessagingToken': cloudMessagingToken,
     };
   }
 
   static userModel fromMap(Map<String, dynamic> map) {
     return userModel(
-      name: map['name'] != null ? map['name'] as String : '',
+      displayName: map['displayName'] != null
+          ? map['displayName'] as String
+          : '',
       userProfilePicUrl: map['userProfilePicUrl'] ?? '',
       userId: map['userId'] ?? '',
-      cloudMessageingToken: map['cloudMessageingToken'] ?? '',
+      cloudMessagingToken: map['cloudMessagingToken'] ?? '',
     );
   }
 }

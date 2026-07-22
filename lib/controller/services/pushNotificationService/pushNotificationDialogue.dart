@@ -16,22 +16,36 @@ class PushNotificationDialogue {
     String orderId,
     BuildContext context,
   ) async {
-    if (_isDialogOpen) return;
+    if (_isDialogOpen) {
+      log("Dialog already open, skipping...");
+      return;
+    }
+
     _isDialogOpen = true;
 
     try {
+      /// 🔥 CHECK DRIVER STATE
       DriverModel driver =
           await ProfileServices.getDeliveryPartnerProfileData();
-      if (driver.activeDeliveryRequestId != null &&
-          driver.activeDeliveryRequestId!.isNotEmpty)
-        return;
 
+      final activeRequests = driver.activeDeliveryRequestIds ?? [];
+
+      final maxOrders = driver.maxActiveOrders ?? 2;
+
+      if (activeRequests.length >= maxOrders) {
+        log("Driver capacity full");
+        return;
+      }
+
+      /// 🔊 PLAY ALERT SOUND
       await audioPlayer.setAsset('assets/sounds/alert.mp3');
       audioPlayer.play();
 
+      /// 🔥 FETCH ORDER
       FoodOrderModel foodOrderData = await Orderservice.fetchOrderDetails(
         orderId,
       );
+
       if (!context.mounted) return;
 
       await showDialog(
@@ -40,6 +54,7 @@ class PushNotificationDialogue {
         builder: (dialogContext) {
           return AlertDialog(
             title: const Text("New Delivery Request"),
+
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -48,10 +63,12 @@ class PushNotificationDialogue {
                   "Pickup: ${foodOrderData.restaurantDetails.restaurantName}",
                 ),
                 const SizedBox(height: 8),
-                Text("Drop: ${foodOrderData.userAddress?.apartment ?? ''}"),
+                Text("Drop: ${foodOrderData.userAddress?.streetAddress ?? ''}"),
               ],
             ),
+
             actions: [
+              /// ❌ DECLINE
               TextButton(
                 onPressed: () {
                   audioPlayer.stop();
@@ -59,22 +76,37 @@ class PushNotificationDialogue {
                 },
                 child: const Text("Decline"),
               ),
+
+              /// ✅ ACCEPT
               TextButton(
                 onPressed: () async {
-                  audioPlayer.stop();
                   Navigator.pop(dialogContext);
+
                   try {
                     final rideProvider = context.read<RideProvider>();
+
+                    /// 🔥 BACKEND UPDATE (IMPORTANT)
                     await Orderservice.updateDiverProfileIntoFoodOrderModelAndAddActiveDeliveryRequest(
                       orderId,
                       context,
                     );
+
+                    await realTimeDatabaseRef
+                        .child('Orders/$orderId/driverStatus')
+                        .set('DRIVER_ASSIGNED');
+
+                    /// 🔥 SET ORDER DATA + LOAD ROUTE
                     await rideProvider.updateOrderData(foodOrderData, context);
+
+                    /// 🔥 START IN PICKUP MODE
                     rideProvider.updateInDeliveryStatus(false);
+
+                    /// 🔥 UPDATE ORDER STATE
                     context.read<OrderProvider>().updateFoodOrderData(
                       foodOrderData,
                     );
-                    await rideProvider.startNavigationToRestaurant();
+
+                    audioPlayer.stop();
                   } catch (e) {
                     log("Accept error: $e");
                   }

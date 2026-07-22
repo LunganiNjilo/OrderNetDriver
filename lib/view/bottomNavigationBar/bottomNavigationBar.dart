@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import 'package:driver/controller/provider/profileProvider/profileProvider.dart';
 import 'package:driver/controller/provider/rideProvider/rideProvider.dart';
 import 'package:driver/controller/services/pushNotificationService/pushNotificationService.dart';
@@ -23,7 +25,13 @@ class _BottomNavigationBarEatsState extends State<BottomNavigationBarEats> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      log("========== BottomNavigationBar ==========");
+      log("Calling initializeFCM()");
+
       await PushNotificationService.initializeFCM(context);
+
+      log("initializeFCM() FINISHED");
+
       context.read<ProfileProvider>().getDeliveryGuyProfile();
     });
   }

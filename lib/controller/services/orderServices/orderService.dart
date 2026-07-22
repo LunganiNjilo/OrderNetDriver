@@ -62,12 +62,55 @@ class Orderservice {
     DriverModel deliveryPartnerData = context
         .read<ProfileProvider>()
         .deliveryGuyProfile!;
-    realTimeDatabaseRef
-        .child('Orders/$orderId/deliveryPartnerData')
-        .set(deliveryPartnerData.toMap());
-    realTimeDatabaseRef
-        .child('Driver/${auth.currentUser!.uid}/activeDeliveryRequestId')
-        .set(orderId);
+
+    await realTimeDatabaseRef.child('Orders/$orderId').update({
+      'deliveryPartnerData': deliveryPartnerData.toMap(),
+      'deliveryGuyUId': auth.currentUser!.uid,
+    });
+
+    final driverRef = realTimeDatabaseRef.child(
+      'Driver/${auth.currentUser!.uid}',
+    );
+
+    final String cleanOrderId = orderId.trim();
+
+    final snapshot = await driverRef.child('activeDeliveryRequestIds').get();
+
+    List<dynamic> activeRequests = [];
+
+    if (snapshot.exists && snapshot.value != null) {
+      activeRequests = List<dynamic>.from(snapshot.value as List);
+    }
+
+    if (!activeRequests.contains(cleanOrderId)) {
+      activeRequests.add(cleanOrderId);
+    }
+
+    final currentActiveSnapshot = await driverRef
+        .child('activeDeliveryRequestId')
+        .get();
+
+    String? currentActive = currentActiveSnapshot.value?.toString();
+
+    log("CURRENT ACTIVE BEFORE UPDATE: $currentActive");
+    log("ORDER BEING ACCEPTED: $orderId");
+
+    // 1. Force the compiler to treat this strictly as a raw text literal string
+    final String stringLiteralId = cleanOrderId;
+
+    // 2. Set the active order ID directly to its specific child path
+    await driverRef
+        .child('activeDeliveryRequestId')
+        .set(
+          (currentActive == null ||
+                  currentActive.isEmpty ||
+                  currentActive == 'null')
+              ? stringLiteralId
+              : currentActive,
+        );
+
+    // 3. Set the list directly to its specific child path
+    await driverRef.child('activeDeliveryRequestIds').set(activeRequests);
   }
 
   static orderStatus(int status) {
@@ -77,7 +120,7 @@ class Orderservice {
       case 1:
         return 'FOOD_PICKED_UP_BY_DELIVERY_PARTNER';
       case 2:
-        'FOOD_DELIVERED';
+        return 'FOOD_DELIVERED';
     }
   }
 
@@ -96,7 +139,7 @@ class Orderservice {
       restaurantUId: foodOrderData.restaurantUId,
       userUId: foodOrderData.userUId,
       deliveryGuyUId: auth.currentUser!.uid,
-      orderStatus: foodOrderData.orderStatus,
+      orderStatus: "FOOD_DELIVERED",
       orderPlacedAt: foodOrderData.orderPlacedAt,
       orderDeliveredAt: DateTime.now(),
     );

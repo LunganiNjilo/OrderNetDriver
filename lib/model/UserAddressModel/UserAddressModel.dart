@@ -5,9 +5,11 @@ class UserAddressModel {
   String userId;
   double latitude;
   double longitude;
-  String roomNo;
-  String apartment;
-  String addressTitle;
+  String streetAddress;
+  String suburb;
+  String city;
+  String province;
+  String postalCode;
   DateTime uploadTime;
   bool isActive;
 
@@ -16,9 +18,11 @@ class UserAddressModel {
     required this.addressId,
     required this.latitude,
     required this.longitude,
-    required this.roomNo,
-    required this.apartment,
-    required this.addressTitle,
+    required this.streetAddress,
+    required this.suburb,
+    required this.city,
+    required this.province,
+    required this.postalCode,
     required this.uploadTime,
     required this.isActive,
   });
@@ -29,9 +33,11 @@ class UserAddressModel {
       'addressId': addressId,
       'latitude': latitude,
       'longitude': longitude,
-      'roomNo': roomNo,
-      'apartment': apartment,
-      'addressTitle': addressTitle,
+      'streetAddress': streetAddress,
+      'suburb': suburb,
+      'city': city,
+      'province': province,
+      'postalCode': postalCode,
       'uploadTime': uploadTime?.toIso8601String(),
       'isActive': isActive,
     };
@@ -41,11 +47,13 @@ class UserAddressModel {
     return UserAddressModel(
       userId: map['userId'] != null ? map['userId'] as String : '',
       addressId: map['addressId'] ?? '',
-      latitude: map['latitude'] ?? '',
-      longitude: map['longitude'] ?? '',
-      roomNo: map['roomNo'] ?? '',
-      apartment: map['apartment'] ?? '',
-      addressTitle: map['addressTitle'] ?? '',
+      latitude: (map['latitude'] as num?)?.toDouble() ?? 0.0,
+      longitude: (map['longitude'] as num?)?.toDouble() ?? 0.0,
+      streetAddress: map['streetAddress'] ?? '',
+      suburb: map['suburb'] ?? '',
+      city: map['city'] ?? '',
+      province: map['province'] ?? '',
+      postalCode: map['postalCode'] ?? '',
       uploadTime: map['uploadTime'] is DateTime
           ? map['uploadTime']
           : DateTime.tryParse(map['uploadTime'] ?? '') ?? DateTime.now(),

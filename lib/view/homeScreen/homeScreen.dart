@@ -1,18 +1,13 @@
 import 'dart:async';
+import 'dart:developer';
 import 'dart:math' as math;
 import 'package:driver/constant/constant.dart';
 import 'package:driver/controller/provider/rideProvider/rideProvider.dart';
-import 'package:driver/controller/services/geofireServices/geofireService.dart';
 import 'package:driver/controller/services/orderServices/orderService.dart';
-import 'package:driver/model/driverModel/driverModel.dart';
-import 'package:driver/utils/colors.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_swipe_button/flutter_swipe_button.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
-import 'package:sizer/sizer.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,9 +18,44 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   GoogleMapController? _mapController;
+  BitmapDescriptor? _carIcon;
+  double _cameraBearing = 0;
+  LatLng? _cameraTarget;
+  LatLng? _lastCameraPosition;
+  double _lastCameraHeading = 0;
+
   final DatabaseReference _driverRef = FirebaseDatabase.instance.ref().child(
     'Driver/${auth.currentUser!.uid}',
   );
+
+  @override
+  void initState() {
+    super.initState();
+
+    BitmapDescriptor.asset(
+          const ImageConfiguration(size: Size(96, 96)),
+          "assets/icons/car_top.png",
+        )
+        .then((icon) {
+          log("Car icon loaded");
+          _carIcon = icon;
+
+          if (mounted) {
+            setState(() {});
+          }
+        })
+        .catchError((e) {
+          log("Failed to load car icon: $e");
+        });
+
+    _driverRef.child('activeDeliveryRequestId').onValue.listen((event) {
+      log("ACTIVE DELIVERY REQUEST CHANGED TO: ${event.snapshot.value}");
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<RideProvider>().initialize();
+    });
+  }
 
   String darkMapStyle = '''[
   { "elementType": "geometry", "stylers": [{ "color": "#212121" }] },
@@ -39,41 +69,363 @@ class _HomeScreenState extends State<HomeScreen> {
   { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#000000" }] }
 ]''';
 
-  void _updateCamera(LatLng pos, double heading) {
-    if (_mapController == null || heading.isNaN) return;
+  DateTime? _lastCameraUpdate;
 
-    final provider = Provider.of<RideProvider>(context, listen: false);
+  void _updateCamera(LatLng target, double heading) {
+    if (_lastCameraPosition != null) {
+      final moved = _distanceMeters(_lastCameraPosition!, target);
 
-    // 🔥 FIX: If no active order, don't use 3D tilt/offset. Use a standard 2D view.
-    if (provider.orderData == null) {
-      _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: pos, zoom: 15, tilt: 0, bearing: 0),
-        ),
-      );
-      return;
+      final headingDelta = ((_lastCameraHeading - heading + 540) % 360) - 180;
+
+      if (moved < 1.0 && headingDelta.abs() < 2.0) {
+        return;
+      }
     }
 
-    // Active Navigation View (3D)
-    _mapController!.animateCamera(
+    _lastCameraPosition = target;
+    _lastCameraHeading = heading;
+
+    if (_mapController == null) return;
+
+    _cameraTarget ??= target;
+    _cameraTarget = _lerpLatLng(_cameraTarget!, target, 0.55);
+
+    _cameraBearing = _lerpAngle(_cameraBearing, heading, 0.80);
+
+    _mapController!.moveCamera(
       CameraUpdate.newCameraPosition(
         CameraPosition(
-          target: _calculateTarget(pos, heading),
-          zoom: 18.5,
-          tilt: 65,
-          bearing: heading,
+          target: _cameraTarget!,
+          zoom: 20.5,
+          tilt: 78,
+          bearing: _cameraBearing,
         ),
       ),
     );
   }
 
-  LatLng _calculateTarget(LatLng pos, double heading) {
-    const double forwardOffset = 0.00075;
-    final double bearingRad = heading * (math.pi / 180);
+  double _lerpAngle(double from, double to, double t) {
+    double delta = ((to - from + 540) % 360) - 180;
+    return (from + delta * t + 360) % 360;
+  }
+
+  LatLng _lerpLatLng(LatLng from, LatLng to, double t) {
     return LatLng(
-      pos.latitude + forwardOffset * math.cos(bearingRad),
-      pos.longitude + forwardOffset * math.sin(bearingRad),
+      from.latitude + (to.latitude - from.latitude) * t,
+      from.longitude + (to.longitude - from.longitude) * t,
     );
+  }
+
+  double _distanceMeters(LatLng a, LatLng b) {
+    const double earthRadius = 6371000.0;
+
+    final dLat = (b.latitude - a.latitude) * math.pi / 180;
+    final dLng = (b.longitude - a.longitude) * math.pi / 180;
+
+    final lat1 = a.latitude * math.pi / 180;
+    final lat2 = b.latitude * math.pi / 180;
+
+    final h =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+
+    return earthRadius * (2 * math.atan2(math.sqrt(h), math.sqrt(1 - h)));
+  }
+
+  Widget _buildNavigationHeader() {
+    return Consumer<RideProvider>(
+      builder: (context, provider, _) {
+        if (provider.orderData == null) return const SizedBox();
+
+        final destination = provider.inDelivery
+            ? provider.orderData!.userAddress?.streetAddress ?? ""
+            : provider.orderData!.restaurantDetails.restaurantName ?? "";
+
+        return Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            child: Container(
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(.92),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(Icons.navigation, color: Colors.white),
+                  ),
+
+                  const SizedBox(width: 16),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          provider.inDelivery
+                              ? "Deliver to customer"
+                              : "Navigate to restaurant",
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                          ),
+                        ),
+
+                        const SizedBox(height: 4),
+
+                        Text(
+                          destination,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOnlinePanel() {
+    return Consumer<RideProvider>(
+      builder: (context, provider, _) {
+        if (provider.orderData != null) {
+          return const SizedBox();
+        }
+
+        return Positioned(
+          right: 16,
+          bottom: 24,
+          child: GestureDetector(
+            onTap: () async {
+              if (provider.isOnline) {
+                await provider.goOffline();
+              } else {
+                await provider.goOnline();
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black87,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.power_settings_new,
+                    size: 18,
+                    color: provider.isOnline ? Colors.red : Colors.green,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    provider.isOnline ? "OFFLINE" : "ONLINE",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBottomSheet() {
+    return Consumer<RideProvider>(
+      builder: (context, provider, _) {
+        if (provider.orderData == null) {
+          return const SizedBox();
+        }
+
+        final pickup = !provider.inDelivery;
+
+        return Positioned(
+          left: 16,
+          right: 16,
+          bottom: 16,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+
+            decoration: BoxDecoration(
+              color: const Color(0xff161616),
+              borderRadius: BorderRadius.circular(20),
+            ),
+
+            child: SafeArea(
+              top: false,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          pickup
+                              ? provider
+                                    .orderData!
+                                    .restaurantDetails
+                                    .restaurantName!
+                              : provider.orderData!.userData!.displayName!,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          pickup ? "Pickup" : "Delivery",
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  SizedBox(
+                    width: 140,
+                    height: 42,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: pickup ? Colors.orange : Colors.green,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: () async {
+                        await _handleDeliveryAction(provider);
+                      },
+                      child: Text(
+                        pickup ? "ARRIVED" : "DELIVER",
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _handleDeliveryAction(RideProvider provider) async {
+    final bool isAtPickup = !provider.inDelivery;
+
+    String orderId = provider.orderData!.orderId!;
+
+    log("CURRENT DRIVER UID: ${auth.currentUser!.uid}");
+    log("COMPLETING ORDER: $orderId");
+
+    final snapshot = await _driverRef.child('activeDeliveryRequestIds').get();
+
+    List<dynamic> activeRequests = [];
+
+    if (snapshot.exists && snapshot.value != null) {
+      activeRequests = List<dynamic>.from(snapshot.value as List);
+    }
+
+    log("ACTIVE REQUESTS BEFORE CLEANUP: $activeRequests");
+
+    if (isAtPickup) {
+      await realTimeDatabaseRef
+          .child('Orders/$orderId/orderStatus')
+          .set(Orderservice.orderStatus(1));
+
+      await realTimeDatabaseRef.child('Orders/$orderId/isPickedUp').set(true);
+
+      await realTimeDatabaseRef
+          .child('Orders/$orderId/driverStatus')
+          .set('FOOD_PICKED_UP');
+
+      for (final order in provider.activeOrders ?? []) {
+        if (order.restaurantUId == provider.orderData?.restaurantUId) {
+          order.isPickedUp = true;
+        }
+      }
+
+      provider.updateInDeliveryStatus(true);
+
+      await provider.startNavigationToCustomer();
+    } else {
+      await Orderservice.addOrderDataToHistory(provider.orderData!, context);
+
+      await realTimeDatabaseRef
+          .child('Orders/$orderId/orderStatus')
+          .set(Orderservice.orderStatus(2));
+
+      await realTimeDatabaseRef
+          .child('Orders/$orderId/driverStatus')
+          .set('DELIVERED');
+
+      activeRequests.remove(orderId);
+
+      await _driverRef.update({'activeDeliveryRequestIds': activeRequests});
+
+      Orderservice.removeOrder(orderId);
+
+      await provider.moveToNextOrder();
+
+      if (provider.orderData == null) {
+        await _driverRef.child('activeDeliveryRequestId').remove();
+
+        await _driverRef.child('activeDeliveryRequestIds').remove();
+      } else {
+        await _driverRef.update({
+          'activeDeliveryRequestId': provider.orderData!.orderId,
+        });
+      }
+
+      if (_mapController != null && provider.currentPosition != null) {
+        _mapController!.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: LatLng(
+                provider.currentPosition!.latitude,
+                provider.currentPosition!.longitude,
+              ),
+              zoom: 15,
+              tilt: 0,
+              bearing: 0,
+            ),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -85,238 +437,75 @@ class _HomeScreenState extends State<HomeScreen> {
           Consumer<RideProvider>(
             builder: (context, rideProvider, _) {
               final pos = rideProvider.currentPosition;
+
               if (pos != null) {
-                Future.microtask(
-                  () => _updateCamera(
+                Future.microtask(() {
+                  _updateCamera(
                     LatLng(pos.latitude, pos.longitude),
-                    pos.heading,
-                  ),
-                );
+                    rideProvider.cameraHeading,
+                  );
+                });
               }
 
               return GoogleMap(
                 initialCameraPosition: const CameraPosition(
                   target: LatLng(-29.8587, 31.0218),
-                  zoom: 14,
+                  zoom: 18,
                 ),
+
                 myLocationEnabled: false,
                 compassEnabled: false,
                 zoomControlsEnabled: false,
                 mapToolbarEnabled: false,
+                buildingsEnabled: true,
+                trafficEnabled: true,
+                indoorViewEnabled: false,
+
                 style: darkMapStyle,
-                padding: EdgeInsets.only(bottom: 30.h, top: 10.h),
+
+                // FULLSCREEN
+                padding: EdgeInsets.zero,
+
                 polylines: _buildPolylines(rideProvider.currentRoute),
+
                 markers: _buildMarkers(rideProvider),
+
                 onMapCreated: (controller) {
                   _mapController = controller;
-                  rideProvider.startLocationUpdates();
                 },
               );
             },
           ),
-          _buildTopToggle(),
-          _buildDeliveryPanel(),
+
+          _buildNavigationHeader(),
+
+          _buildOnlinePanel(),
+
+          _buildBottomSheet(),
         ],
       ),
     );
   }
 
-  Widget _buildTopToggle() {
-    return Positioned(
-      top: 6.h,
-      left: 5.w,
-      right: 5.w,
-      child: StreamBuilder(
-        stream: _driverRef.onValue,
-        builder: (context, event) {
-          if (!event.hasData || event.data!.snapshot.value == null)
-            return const SizedBox();
-          final dataMap = Map<String, dynamic>.from(
-            event.data!.snapshot.value as Map,
-          );
-          final driver = DriverModel.fromMap(dataMap);
-
-          if (driver.activeDeliveryRequestId?.isNotEmpty ?? false)
-            return const SizedBox();
-
-          bool isOnline = driver.driverStatus == "ONLINE";
-
-          return SwipeButton(
-            height: 6.h,
-            activeThumbColor: isOnline ? Colors.redAccent : Colors.cyanAccent,
-            activeTrackColor: Colors.white10,
-            thumb: Icon(
-              isOnline ? Icons.power_settings_new : Icons.bolt,
-              color: Colors.black,
-            ),
-            child: Text(
-              isOnline ? "GO OFFLINE" : "GO ONLINE",
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            onSwipe: () {
-              if (isOnline) {
-                GeofireService.goOffline();
-                context.read<RideProvider>().stopLocationUpdates();
-              } else {
-                GeofireService.goOnline();
-                GeofireService.updateLocationRealtime();
-                context.read<RideProvider>().startLocationUpdates();
-              }
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildDeliveryPanel() {
-    return Consumer<RideProvider>(
-      builder: (context, provider, _) {
-        if (provider.orderData == null) return const SizedBox();
-        bool isAtPickup = !provider.inDelivery;
-
-        return Positioned(
-          bottom: 2.h,
-          left: 4.w,
-          right: 4.w,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              FloatingActionButton(
-                backgroundColor: Colors.white,
-                onPressed: () async {
-                  final target = isAtPickup
-                      ? provider.restaurantLocation
-                      : provider.deliveryLocation;
-                  if (target != null) {
-                    await launchUrl(
-                      Uri.parse(
-                        "google.navigation:q=${target.latitude},${target.longitude}&mode=d",
-                      ),
-                    );
-                  }
-                },
-                child: const Icon(Icons.navigation, color: Colors.black),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: EdgeInsets.all(5.w),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E1E1E),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Colors.white10),
-                  boxShadow: [
-                    const BoxShadow(color: Colors.black45, blurRadius: 20),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      isAtPickup ? "RESTAURANT PICKUP" : "CUSTOMER DELIVERY",
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        letterSpacing: 1.2,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Divider(color: Colors.white10, height: 20),
-                    SwipeButton(
-                      thumb: const Icon(
-                        Icons.arrow_forward_ios,
-                        color: Colors.black,
-                        size: 18,
-                      ),
-                      activeThumbColor: isAtPickup
-                          ? Colors.orangeAccent
-                          : Colors.greenAccent,
-                      activeTrackColor: Colors.white.withOpacity(0.05),
-                      child: Text(
-                        isAtPickup ? "CONFIRM PICKUP" : "FINISH DELIVERY",
-                        style: TextStyle(
-                          color: isAtPickup
-                              ? Colors.orangeAccent
-                              : Colors.greenAccent,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      onSwipe: () async {
-                        String orderId = provider.orderData!.orderId!;
-                        if (isAtPickup) {
-                          await realTimeDatabaseRef
-                              .child('Orders/$orderId/orderStatus')
-                              .set(Orderservice.orderStatus(1));
-                          provider.updateInDeliveryStatus(true);
-                          await provider.startNavigationToCustomer();
-                        } else {
-                          // 🔥 DELIVERY FINISHED - START CLEANUP
-                          await Orderservice.addOrderDataToHistory(
-                            provider.orderData!,
-                            context,
-                          );
-                          await realTimeDatabaseRef
-                              .child('Orders/$orderId/orderStatus')
-                              .set(Orderservice.orderStatus(2));
-                          await _driverRef
-                              .child('activeDeliveryRequestId')
-                              .set("");
-
-                          Orderservice.removeOrder(orderId);
-
-                          // Reset Provider State
-                          provider.orderData = null;
-                          provider.currentRoute = []; // Clears polyline
-                          provider.updateInDeliveryStatus(false);
-
-                          // Reset Camera to 2D bird's eye
-                          if (_mapController != null &&
-                              provider.currentPosition != null) {
-                            _mapController!.animateCamera(
-                              CameraUpdate.newCameraPosition(
-                                CameraPosition(
-                                  target: LatLng(
-                                    provider.currentPosition!.latitude,
-                                    provider.currentPosition!.longitude,
-                                  ),
-                                  zoom: 15.0,
-                                  tilt: 0,
-                                  bearing: 0,
-                                ),
-                              ),
-                            );
-                          }
-                          provider.notifyListeners();
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   Set<Polyline> _buildPolylines(List<LatLng> points) {
     if (points.isEmpty) return {};
+
     return {
       Polyline(
         polylineId: const PolylineId("route"),
         points: points,
-        color: Colors.cyanAccent,
-        width: 5,
+        width: 8,
+        color: const Color(0xff2D8CFF),
         jointType: JointType.round,
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
       ),
     };
   }
 
   Set<Marker> _buildMarkers(RideProvider provider) {
-    Set<Marker> markers = {};
+    final Set<Marker> markers = {};
+
     if (provider.currentPosition != null) {
       markers.add(
         Marker(
@@ -325,32 +514,33 @@ class _HomeScreenState extends State<HomeScreen> {
             provider.currentPosition!.latitude,
             provider.currentPosition!.longitude,
           ),
-          rotation: provider.currentPosition!.heading,
+          rotation: provider.cameraHeading,
           flat: true,
           anchor: const Offset(0.5, 0.5),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+
+          // We'll replace this with a custom car icon later
+          icon: _carIcon ?? BitmapDescriptor.defaultMarker,
+
+          zIndex: 999,
         ),
       );
     }
-    // Only show destination marker if order is active
-    if (provider.orderData != null) {
-      final dest = !provider.inDelivery
-          ? provider.restaurantLocation
-          : provider.deliveryLocation;
-      if (dest != null) {
-        markers.add(
-          Marker(
-            markerId: const MarkerId("destination"),
-            position: dest,
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              provider.inDelivery
-                  ? BitmapDescriptor.hueGreen
-                  : BitmapDescriptor.hueOrange,
-            ),
-          ),
-        );
-      }
+
+    // Only destination marker
+    final destination = provider.inDelivery
+        ? provider.deliveryLocation
+        : provider.restaurantLocation;
+
+    if (destination != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId("destination"),
+          position: destination,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        ),
+      );
     }
+
     return markers;
   }
 }
