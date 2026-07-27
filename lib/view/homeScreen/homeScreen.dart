@@ -97,7 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
         CameraPosition(
           target: _cameraTarget!,
           zoom: 20.5,
-          tilt: 78,
+          tilt: 72,
           bearing: _cameraBearing,
         ),
       ),

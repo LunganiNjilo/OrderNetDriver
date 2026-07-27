@@ -73,6 +73,8 @@ class RideProvider extends ChangeNotifier {
 
         final snapped = snap.point;
 
+        finalPosition = snapped;
+
         final currentPoint = currentRoute[snap.segmentIndex];
 
         final nextPoint =
@@ -84,7 +86,7 @@ class RideProvider extends ChangeNotifier {
         final routeBearing = _calculateBearing(currentPoint, nextPoint);
 
         // Vehicle follows the route quickly
-        _vehicleHeading = _lerpAngle(_vehicleHeading, routeBearing, 0.70);
+        _vehicleHeading = _lerpAngle(_vehicleHeading, routeBearing, 0.90);
 
         // Camera should use the current route bearing directly
         _cameraHeading = routeBearing;
