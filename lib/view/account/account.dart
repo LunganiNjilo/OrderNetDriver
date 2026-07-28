@@ -1,14 +1,14 @@
 import 'package:driver/controller/provider/profileProvider/profileProvider.dart';
 import 'package:driver/model/driverModel/driverModel.dart';
-import 'package:driver/model/userModel/userModel.dart';
 import 'package:driver/utils/colors.dart';
 import 'package:driver/utils/textStyles.dart';
 import 'package:driver/view/historyScreen/HistoryScreen.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:page_transition/page_transition.dart';
 import 'package:provider/provider.dart';
 import 'package:sizer/sizer.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:driver/view/signInLogicScreen/signInLogicScreen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -18,17 +18,12 @@ class AccountScreen extends StatefulWidget {
 }
 
 class _AccountScreenState extends State<AccountScreen> {
-  List account = [
-    [FontAwesomeIcons.shop, 'Orders'],
-    [FontAwesomeIcons.locationPin, 'Address'],
-    [FontAwesomeIcons.heart, 'Your Favorites'],
+  final List account = [
+    [FontAwesomeIcons.clockRotateLeft, 'Delivery History'],
+    [FontAwesomeIcons.sackDollar, 'Earnings'],
+    [FontAwesomeIcons.heart, 'Favorite Restaurants'],
     [FontAwesomeIcons.star, 'Restaurant Reviews'],
-    [FontAwesomeIcons.wallet, 'Wallet'],
-    [FontAwesomeIcons.gift, 'Send a gift'],
-    [FontAwesomeIcons.suitcase, 'Business preferences'],
-    [FontAwesomeIcons.person, 'Help'],
-    [FontAwesomeIcons.tag, 'Uber Pass'],
-    [FontAwesomeIcons.ticket, 'Deliver with uber'],
+    [FontAwesomeIcons.circleQuestion, 'Help'],
     [FontAwesomeIcons.gear, 'Settings'],
     [FontAwesomeIcons.powerOff, 'Sign Out'],
   ];
@@ -39,6 +34,71 @@ class _AccountScreenState extends State<AccountScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ProfileProvider>().getDeliveryGuyProfile();
     });
+  }
+
+  void _showSignOutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Sign Out"),
+        content: const Text("Are you sure you want to sign out?"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+            },
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                await FirebaseAuth.instance.signOut();
+
+                if (!mounted) return;
+
+                Navigator.pop(context);
+
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const SignInLogicScreen()),
+                  (route) => false,
+                );
+              } catch (e) {
+                if (!mounted) return;
+
+                Navigator.pop(context);
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Failed to sign out: $e")),
+                );
+              }
+            },
+            child: const Text("Sign Out", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleMenuNavigation(int index) {
+    final String title = account[index][1];
+
+    switch (title) {
+      case 'Delivery History':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const HistoryScreen()),
+        );
+        break;
+
+      case 'Sign Out':
+        _showSignOutDialog();
+        break;
+
+      default:
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$title coming soon')));
+    }
   }
 
   @override
@@ -60,16 +120,16 @@ class _AccountScreenState extends State<AccountScreen> {
                         backgroundColor: black,
                         child: CircleAvatar(
                           backgroundColor: white,
+                          radius: 3.h - 2,
                           child: FaIcon(
                             FontAwesomeIcons.user,
                             size: 3.h,
                             color: grey,
                           ),
-                          radius: 3.h - 2,
                         ),
                       ),
                       SizedBox(width: 4.h),
-                      Text('Hello User', style: AppTextStyles.body16),
+                      Text('Driver', style: AppTextStyles.body16),
                     ],
                   );
                 } else {
@@ -81,10 +141,22 @@ class _AccountScreenState extends State<AccountScreen> {
                         backgroundColor: black,
                         child: CircleAvatar(
                           backgroundColor: white,
-                          backgroundImage: NetworkImage(
-                            userData.profilePicUrl!,
-                          ),
+                          backgroundImage:
+                              userData.profilePicUrl != null &&
+                                  userData.profilePicUrl!.isNotEmpty
+                              ? NetworkImage(userData.profilePicUrl!)
+                              : null,
                           radius: 3.h - 2,
+
+                          child:
+                              userData.profilePicUrl == null ||
+                                  userData.profilePicUrl!.isEmpty
+                              ? FaIcon(
+                                  FontAwesomeIcons.user,
+                                  size: 3.h,
+                                  color: grey,
+                                )
+                              : null,
                         ),
                       ),
                       SizedBox(width: 4.h),
@@ -101,7 +173,7 @@ class _AccountScreenState extends State<AccountScreen> {
               physics: const NeverScrollableScrollPhysics(),
               itemBuilder: (context, index) {
                 return ListTile(
-                  onTap: () {},
+                  onTap: () => _handleMenuNavigation(index),
                   leading: FaIcon(account[index][0], size: 2.h),
                   title: Text(account[index][1], style: AppTextStyles.body14),
                 );
