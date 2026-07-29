@@ -69,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
   { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#000000" }] }
 ]''';
 
-  DateTime? _lastCameraUpdate;
+  bool _isProcessingDelivery = false;
 
   void _updateCamera(LatLng target, double heading) {
     if (_lastCameraPosition != null) {
@@ -322,16 +322,43 @@ class _HomeScreenState extends State<HomeScreen> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      onPressed: () async {
-                        await _handleDeliveryAction(provider);
-                      },
-                      child: Text(
-                        pickup ? "ARRIVED" : "DELIVER",
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      onPressed: _isProcessingDelivery
+                          ? null
+                          : () async {
+                              setState(() {
+                                _isProcessingDelivery = true;
+                              });
+
+                              try {
+                                if (pickup) {
+                                  await _handleDeliveryAction(provider);
+                                } else {
+                                  await _showDeliveryConfirmation(provider);
+                                }
+                              } finally {
+                                if (mounted) {
+                                  setState(() {
+                                    _isProcessingDelivery = false;
+                                  });
+                                }
+                              }
+                            },
+                      child: _isProcessingDelivery
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              pickup ? "ARRIVED" : "DELIVER",
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                     ),
                   ),
                 ],
@@ -381,6 +408,16 @@ class _HomeScreenState extends State<HomeScreen> {
       provider.updateInDeliveryStatus(true);
 
       await provider.startNavigationToCustomer();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("✔ Order picked up successfully"),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } else {
       await Orderservice.addOrderDataToHistory(provider.orderData!, context);
 
@@ -410,6 +447,16 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
 
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("✔ Delivery completed successfully"),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+
       if (_mapController != null && provider.currentPosition != null) {
         _mapController!.animateCamera(
           CameraUpdate.newCameraPosition(
@@ -426,6 +473,84 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     }
+  }
+
+  Future<void> _showDeliveryConfirmation(RideProvider provider) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Complete Delivery"),
+        content: const Text(
+          "Confirm that the customer has received the order.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Complete"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _handleDeliveryAction(provider);
+    }
+  }
+
+  Widget _buildWaitingBanner() {
+    return Consumer<RideProvider>(
+      builder: (context, provider, _) {
+        // Don't show while on a delivery
+        if (provider.orderData != null) {
+          return const SizedBox();
+        }
+
+        // Only show when online
+        if (!provider.isOnline) {
+          return const SizedBox();
+        }
+
+        return Positioned(
+          top: 120,
+          left: 20,
+          right: 20,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.black87,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.delivery_dining, color: Colors.green, size: 36),
+                  SizedBox(height: 8),
+                  Text(
+                    "You're Online",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    "Waiting for delivery requests...",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -478,6 +603,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
 
           _buildNavigationHeader(),
+
+          _buildWaitingBanner(),
 
           _buildOnlinePanel(),
 

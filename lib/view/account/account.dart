@@ -3,6 +3,7 @@ import 'package:driver/model/driverModel/driverModel.dart';
 import 'package:driver/utils/colors.dart';
 import 'package:driver/utils/textStyles.dart';
 import 'package:driver/view/historyScreen/HistoryScreen.dart';
+import 'package:driver/view/settingsScreen/settingsScreen.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
@@ -19,10 +20,7 @@ class AccountScreen extends StatefulWidget {
 
 class _AccountScreenState extends State<AccountScreen> {
   final List account = [
-    [FontAwesomeIcons.clockRotateLeft, 'Delivery History'],
     [FontAwesomeIcons.sackDollar, 'Earnings'],
-    [FontAwesomeIcons.heart, 'Favorite Restaurants'],
-    [FontAwesomeIcons.star, 'Restaurant Reviews'],
     [FontAwesomeIcons.circleQuestion, 'Help'],
     [FontAwesomeIcons.gear, 'Settings'],
     [FontAwesomeIcons.powerOff, 'Sign Out'],
@@ -93,6 +91,12 @@ class _AccountScreenState extends State<AccountScreen> {
       case 'Sign Out':
         _showSignOutDialog();
         break;
+
+      case 'Settings':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const SettingsScreen()),
+        );
 
       default:
         ScaffoldMessenger.of(
