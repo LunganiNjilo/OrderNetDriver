@@ -3,6 +3,7 @@ import 'dart:developer';
 import 'dart:math' as math;
 import 'package:driver/constant/constant.dart';
 import 'package:driver/controller/provider/rideProvider/rideProvider.dart';
+import 'package:driver/controller/services/contactService/contactService.dart';
 import 'package:driver/controller/services/orderServices/orderService.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
@@ -288,17 +289,24 @@ class _HomeScreenState extends State<HomeScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          pickup
-                              ? provider
-                                    .orderData!
-                                    .restaurantDetails
-                                    .restaurantName!
-                              : provider.orderData!.userData!.displayName!,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                        GestureDetector(
+                          onTap: pickup
+                              ? null
+                              : () {
+                                  _showCustomerOptions(provider);
+                                },
+                          child: Text(
+                            pickup
+                                ? provider
+                                      .orderData!
+                                      .restaurantDetails
+                                      .restaurantName!
+                                : provider.orderData!.userData!.displayName!,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -499,6 +507,47 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirmed == true) {
       await _handleDeliveryAction(provider);
     }
+  }
+
+  void _showCustomerOptions(RideProvider provider) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 16),
+
+              const Text(
+                "Customer",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+
+              const SizedBox(height: 12),
+
+              ListTile(
+                leading: const Icon(Icons.chat, color: Colors.green),
+                title: const Text("WhatsApp Customer"),
+                onTap: () async {
+                  Navigator.pop(context);
+
+                  await ContactService.contactCustomer(
+                    context,
+                    provider.orderData?.userData?.phoneNumber,
+                  );
+                },
+              ),
+
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildWaitingBanner() {
